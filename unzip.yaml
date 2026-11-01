@@ -1,0 +1,24 @@
+name: ZIP entpacken
+on:
+  workflow_dispatch: # Erlaubt das manuelle Starten im Actions-Tab
+
+jobs:
+  unzip-file:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v4
+
+      - name: ZIP-Archiv entpacken
+        run: |
+          # Ersetzen Sie 'ihre-datei.zip' mit dem echten Namen Ihrer ZIP-Datei
+          unzip -o ihre-datei.zip -d . 
+          rm ihre-datei.zip
+
+      - name: Änderungen committen und pushen
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add .
+          git commit -m "ZIP-Inhalt automatisch entpackt" || echo "Keine Änderungen"
+          git push origin HEAD:${{ github.ref }}
