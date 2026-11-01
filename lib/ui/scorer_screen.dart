@@ -4,6 +4,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../logic/cards.dart';
 import '../logic/rules.dart';
 import '../logic/scoring.dart';
+import '../state/settings.dart';
+import 'suit_shapes.dart';
 
 class ScoreEntry {
   final String desc;
@@ -349,7 +351,8 @@ class _EntrySheetState extends State<_EntrySheet> {
             Wrap(spacing: 8, children: [
               for (final t in games)
                 ChoiceChip(
-                  label: Text(t.kind == GameKind.suit ? '${t.trump!.symbol} ${t.label}' : t.label),
+                  avatar: t.kind == GameKind.suit ? SuitIcon(t.trump!, SettingsScope.of(context).cardStyle) : null,
+                  label: Text(t.kind == GameKind.suit ? suitName(t.trump!, SettingsScope.of(context).cardStyle) : t.label),
                   selected: game == t,
                   onSelected: (_) => setState(() {
                     game = t;
