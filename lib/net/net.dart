@@ -76,7 +76,10 @@ class HostServer extends ChangeNotifier {
       _server = await ServerSocket.bind(InternetAddress.anyIPv4, kPort, shared: true);
       _server!.listen(_onClient, onError: (_) {});
     } catch (e) {
-      error = 'Tisch konnte nicht geöffnet werden: $e';
+      final perm = e.toString().contains('not permitted')
+          ? ' (Der App fehlt die Netzwerk-Berechtigung. Bitte die neueste APK installieren.)'
+          : '';
+      error = 'Tisch konnte nicht geöffnet werden: $e$perm';
       notifyListeners();
       return;
     }
