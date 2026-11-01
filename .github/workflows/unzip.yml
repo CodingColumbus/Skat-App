@@ -2,6 +2,10 @@ name: ZIP entpacken
 on:
   workflow_dispatch: # Erlaubt das manuelle Starten im Actions-Tab
 
+# WICHTIG: Erlaubt dem GitHub-Token, Änderungen in das Repo zu pushen
+permissions:
+  contents: write
+
 jobs:
   unzip-file:
     runs-on: ubuntu-latest
@@ -11,9 +15,8 @@ jobs:
 
       - name: ZIP-Archiv entpacken
         run: |
-          # Ersetzen Sie 'ihre-datei.zip' mit dem echten Namen Ihrer ZIP-Datei
           unzip -o skat_app.zip -d . 
-          rm skat_app.zip
+          rm ihre-datei.zip
 
       - name: Änderungen committen und pushen
         run: |
