@@ -9,6 +9,7 @@ import '../net/controller.dart';
 import '../state/settings.dart';
 import 'card_widget.dart';
 import 'rules_screen.dart';
+import 'seat_colors.dart';
 import 'settings_screen.dart';
 import 'suit_shapes.dart';
 
@@ -176,7 +177,7 @@ class _GameScreenState extends State<GameScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
-                CardView(card: v.lastTrick[i], width: 56, style: st, highlight: v.lastTrickSeats[i] == v.lastTrickWinner),
+                CardView(card: v.lastTrick[i], width: 56, style: st, highlight: v.lastTrickSeats[i] == v.lastTrickWinner, ringColor: seatColor(v.lastTrickSeats[i])),
                 const SizedBox(height: 4),
                 Text(v.names[v.lastTrickSeats[i]], style: const TextStyle(fontSize: 11)),
               ]),
@@ -210,12 +211,16 @@ class _GameScreenState extends State<GameScreen> {
               decoration: BoxDecoration(
                 color: Colors.black.withValues(alpha: 0.28),
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: active ? Colors.amber : Colors.transparent, width: 2),
+                border: Border.all(color: active ? Colors.amber : (s.seatColorsOn ? seatColor(seat) : Colors.transparent), width: active ? 3 : 2),
               ),
               child: Column(children: [
                 Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                   if (v.isBot[seat]) const Padding(padding: EdgeInsets.only(right: 3), child: Icon(Icons.smart_toy, size: 14, color: Colors.white70)),
-                  Flexible(child: Text(v.names[seat], overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+                  Flexible(
+                    child: s.seatColorsOn
+                        ? SeatTag(v.names[seat], seat)
+                        : Text(v.names[seat], overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  ),
                 ]),
                 const SizedBox(height: 4),
                 SizedBox(
@@ -268,7 +273,19 @@ class _GameScreenState extends State<GameScreen> {
         ),
         child: Stack(children: [
           for (var i = 0; i < v.trick.length; i++)
-            Align(alignment: _slot(v, v.trickSeats[i]), child: CardView(card: v.trick[i], width: 60 * s.cardScale, style: s.cardStyle)),
+            Align(
+              alignment: _slot(v, v.trickSeats[i]),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                CardView(
+                  card: v.trick[i],
+                  width: 60 * s.cardScale,
+                  style: s.cardStyle,
+                  ringColor: s.seatColorsOn ? seatColor(v.trickSeats[i]) : null,
+                ),
+                const SizedBox(height: 3),
+                if (s.seatColorsOn) SeatTag(v.names[v.trickSeats[i]], v.trickSeats[i], small: true),
+              ]),
+            ),
           if (v.game != null)
             Positioned(
               top: 8,
@@ -278,6 +295,7 @@ class _GameScreenState extends State<GameScreen> {
             ),
           if (s.showAugen && v.game != null && v.phase != Phase.roundOver)
             Positioned(left: 10, bottom: 8, child: _chip('Augen: ${v.myAugen}', small: true)),
+          if (s.seatColorsOn) Positioned(right: 10, bottom: 8, child: SeatTag('${v.names[v.mySeat]} (du)', v.mySeat, small: true)),
           if (v.phase == Phase.bidding)
             Center(child: _chip(v.bid == 0 ? 'Reizen' : 'Gebot: ${v.bid}')),
           if (v.phase == Phase.roundOver && v.result != null) Center(child: _resultCard(v, s)),

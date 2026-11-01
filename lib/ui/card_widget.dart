@@ -12,6 +12,7 @@ class CardView extends StatelessWidget {
   final bool selected;
   final bool dimmed;
   final bool highlight;
+  final Color? ringColor;
   final VoidCallback? onTap;
   const CardView({
     super.key,
@@ -21,6 +22,7 @@ class CardView extends StatelessWidget {
     this.selected = false,
     this.dimmed = false,
     this.highlight = false,
+    this.ringColor,
     this.onTap,
   });
 
@@ -37,7 +39,7 @@ class CardView extends StatelessWidget {
         width: width,
         height: h,
         child: RepaintBoundary(
-          child: CustomPaint(painter: _CardPainter(card, style, dimmed, selected, highlight)),
+          child: CustomPaint(painter: _CardPainter(card, style, dimmed, selected, highlight, ringColor)),
         ),
       ),
     );
@@ -48,7 +50,8 @@ class _CardPainter extends CustomPainter {
   final SkatCard? card;
   final CardStyle style;
   final bool dimmed, selected, highlight;
-  _CardPainter(this.card, this.style, this.dimmed, this.selected, this.highlight);
+  final Color? ring;
+  _CardPainter(this.card, this.style, this.dimmed, this.selected, this.highlight, this.ring);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -100,6 +103,15 @@ class _CardPainter extends CustomPainter {
         ..strokeWidth = 1.2
         ..color = const Color(0xFF3A3A3A),
     );
+    if (ring != null) {
+      canvas.drawRRect(
+        r.deflate(2),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 4
+          ..color = ring!,
+      );
+    }
     if (selected || highlight) {
       canvas.drawRRect(
         r.deflate(1),
@@ -322,5 +334,5 @@ class _CardPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_CardPainter o) =>
-      o.card != card || o.style != style || o.dimmed != dimmed || o.selected != selected || o.highlight != highlight;
+      o.card != card || o.style != style || o.dimmed != dimmed || o.selected != selected || o.highlight != highlight || o.ring != ring;
 }

@@ -143,6 +143,12 @@ class SettingsScreen extends StatelessWidget {
           onChanged: (v) => s.update(() => s.showOpponentTricks = v),
         ),
         SwitchListTile(
+          title: const Text('Spielerfarben'),
+          subtitle: const Text('Jeder Spieler hat eine Farbe: Name und Rahmen der gespielten Karte'),
+          value: s.seatColorsOn,
+          onChanged: (v) => s.update(() => s.seatColorsOn = v),
+        ),
+        SwitchListTile(
           title: const Text('Vibration'),
           value: s.haptics,
           onChanged: (v) => s.update(() => s.haptics = v),
