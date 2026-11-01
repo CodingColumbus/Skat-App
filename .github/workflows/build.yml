@@ -16,6 +16,23 @@ jobs:
           channel: stable
           cache: true
       - run: flutter create --platforms=android --org de.skat --project-name skat_app .
+      - name: Android-Berechtigungen und App-Name setzen
+        run: |
+          python3 - <<'PY'
+          import re
+          p = "android/app/src/main/AndroidManifest.xml"
+          s = open(p, encoding="utf-8").read()
+          perms = "".join(
+              '\n    <uses-permission android:name="android.permission.%s"/>' % n
+              for n in ["INTERNET", "ACCESS_NETWORK_STATE", "ACCESS_WIFI_STATE", "CHANGE_WIFI_MULTICAST_STATE"]
+              if ("android.permission.%s\"" % n) not in s
+          )
+          s = re.sub(r"(<manifest[^>]*>)", lambda m: m.group(1) + perms, s, count=1)
+          s = re.sub(r'android:label="[^"]*"', 'android:label="Skat"', s, count=1)
+          open(p, "w", encoding="utf-8").write(s)
+          PY
+          grep -q 'android.permission.INTERNET' android/app/src/main/AndroidManifest.xml || (echo "INTERNET-Berechtigung fehlt!" && exit 1)
+          cat android/app/src/main/AndroidManifest.xml | head -20
       - run: flutter pub get
       - run: flutter test
         continue-on-error: true
