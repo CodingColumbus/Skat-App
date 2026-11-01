@@ -16,7 +16,7 @@ jobs:
       - name: ZIP-Archiv entpacken
         run: |
           unzip -o skat_app.zip -d . 
-          rm ihre-datei.zip
+          rm skat_app.zip
 
       - name: Änderungen committen und pushen
         run: |
