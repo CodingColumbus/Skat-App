@@ -1,55 +1,48 @@
-import 'dart:async';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'bot.dart';
 import 'cards.dart';
+import 'models.dart';
 import 'rules.dart';
 import 'scoring.dart';
+import 'view.dart';
 
-enum Phase { bidding, decide18, handDecision, discard, playing, trickDone, roundOver, allPassed }
+export 'models.dart';
 
-class RoundResult {
-  final int declarer;
-  final GameType game;
-  final bool won;
-  final int declarerPoints;
-  final int score;
-  final int gameValue;
-  final bool schneider, schwarz, hand;
-  const RoundResult({
-    required this.declarer,
-    required this.game,
-    required this.won,
-    required this.declarerPoints,
-    required this.score,
-    required this.gameValue,
-    required this.schneider,
-    required this.schwarz,
-    required this.hand,
-  });
-}
-
-/// Spielzustand für 3 Spieler: Sitz 0 = Mensch, 1 und 2 = Bots.
+/// Autoritativer Spielzustand für 3 oder 4 Sitze (bei 4 setzt der Geber aus).
+/// Alle Aktionen prüfen Sitz, Phase und Regeln und geben `false` zurück, wenn sie ungültig sind.
 class SkatGame extends ChangeNotifier {
-  SkatGame({Random? rng, this.botDelay = const Duration(milliseconds: 700)})
-      : _rng = rng ?? Random() {
+  SkatGame({
+    required List<SeatInfo> seats,
+    Random? rng,
+    this.botDelay = const Duration(milliseconds: 700),
+    this.trickDelay = const Duration(milliseconds: 1400),
+  })  : assert(seats.length == 3 || seats.length == 4),
+        seats = List.of(seats),
+        n = seats.length,
+        _rng = rng ?? Random() {
+    dealer = _rng.nextInt(n);
+    totals = List.filled(n, 0);
     deal();
   }
 
+  final int n;
+  final List<SeatInfo> seats;
   final Random _rng;
-  final Duration botDelay;
-  final List<String> names = ['Du', 'Anna', 'Max'];
-  final List<int> totals = [0, 0, 0];
+  Duration botDelay;
+  Duration trickDelay;
 
-  int dealer = 2;
-  List<List<SkatCard>> hands = [[], [], []];
+  late int dealer;
+  late List<int> totals;
+  int round = 0;
+
+  List<List<SkatCard>> hands = [];
   List<SkatCard> skat = [];
   Phase phase = Phase.bidding;
 
   // Reizen
   int stage = 0;
-  late int caller;
-  late int responder;
+  int caller = 0, responder = 0;
   int bid = 0;
   bool callerToAct = true;
   int? declarer;
@@ -61,36 +54,59 @@ class SkatGame extends ChangeNotifier {
   List<SkatCard> trick = [];
   List<int> trickSeats = [];
   int turn = 0;
-  List<int> points = [0, 0, 0];
-  List<int> tricksWon = [0, 0, 0];
+  List<int> points = [];
+  List<int> tricksWon = [];
   List<SkatCard> discarded = [];
+  List<SkatCard> lastTrick = [];
+  List<int> lastTrickSeats = [];
   int? lastTrickWinner;
   RoundResult? result;
   String message = '';
+
   bool _disposed = false;
+  bool _botScheduled = false;
   int _gen = 0;
 
-  int get vorhand => (dealer + 1) % 3;
-  int get mittelhand => (dealer + 2) % 3;
-  int get hinterhand => dealer;
+  /// Sitzreihenfolge der drei aktiven Spieler: Vorhand, Mittelhand, Hinterhand.
+  List<int> get order => [for (var k = 1; k <= 3; k++) (dealer + k) % n];
+  int get vorhand => order[0];
+  int get mittelhand => order[1];
+  int get hinterhand => order[2];
 
-  List<SkatCard> get myHand => hands[0];
-  bool get humanTurn => switch (phase) {
-        Phase.bidding => (callerToAct ? caller : responder) == 0,
-        Phase.decide18 || Phase.handDecision || Phase.discard => declarer == 0,
-        Phase.playing => turn == 0,
-        _ => false,
+  int nextActive(int seat) {
+    final o = order;
+    return o[(o.indexOf(seat) + 1) % 3];
+  }
+
+  String name(int seat) => seats[seat].name;
+
+  /// Sitz, der gerade etwas tun muss (null, wenn nichts ansteht).
+  int? get actingSeat => switch (phase) {
+        Phase.bidding => callerToAct ? caller : responder,
+        Phase.decide18 || Phase.handDecision || Phase.discard => declarer,
+        Phase.playing => turn,
+        _ => null,
       };
 
+  int get nextBid {
+    for (final v in bidValues()) {
+      if (v > bid) return v;
+    }
+    return bid + 1;
+  }
+
+  // ---------- Geben ----------
   void deal() {
     _gen++;
+    _botScheduled = false;
     final deck = shuffledDeck(_rng);
-    hands = [deck.sublist(0, 10), deck.sublist(10, 20), deck.sublist(20, 30)];
-    for (final h in hands) {
-      h.sort(handCompare);
+    dealer = (dealer + 1) % n;
+    hands = List.generate(n, (_) => <SkatCard>[]);
+    final o = order;
+    for (var i = 0; i < 3; i++) {
+      hands[o[i]] = deck.sublist(i * 10, i * 10 + 10)..sort(handCompare);
     }
     skat = deck.sublist(30, 32);
-    dealer = (dealer + 1) % 3;
     stage = 0;
     caller = mittelhand;
     responder = vorhand;
@@ -102,50 +118,51 @@ class SkatGame extends ChangeNotifier {
     twelve = [];
     trick = [];
     trickSeats = [];
-    points = [0, 0, 0];
-    tricksWon = [0, 0, 0];
+    points = List.filled(n, 0);
+    tricksWon = List.filled(n, 0);
     discarded = [];
+    lastTrick = [];
+    lastTrickSeats = [];
     lastTrickWinner = null;
     result = null;
+    turn = vorhand;
     phase = Phase.bidding;
-    message = '${names[vorhand]} spielt aus.';
+    round++;
+    message = 'Neue Runde. ${name(mittelhand)} beginnt mit dem Reizen.';
     _changed();
+  }
+
+  bool nextRound() {
+    if (phase != Phase.roundOver && phase != Phase.allPassed) return false;
+    deal();
+    return true;
   }
 
   // ---------- Reizen ----------
-  int get nextBid {
-    for (final v in bidValues()) {
-      if (v > bid) return v;
-    }
-    return bid + 1;
-  }
-
-  /// Aktueller Sprecher beim Reizen.
-  int get bidActor => callerToAct ? caller : responder;
-
-  void humanBid() => _bidCall();
-  void humanHold() => _bidHold();
-  void humanPass() => _bidPass();
-
-  void _bidCall() {
+  bool bidCall(int seat) {
+    if (phase != Phase.bidding || !callerToAct || seat != caller) return false;
     bid = nextBid;
     callerToAct = false;
-    message = '${names[caller]} sagt $bid.';
+    message = '${name(caller)} sagt $bid.';
     _changed();
+    return true;
   }
 
-  void _bidHold() {
+  bool bidHold(int seat) {
+    if (phase != Phase.bidding || callerToAct || seat != responder) return false;
     callerToAct = true;
-    message = '${names[responder]}: ja.';
+    message = '${name(responder)} hält.';
     _changed();
+    return true;
   }
 
-  void _bidPass() {
-    // Aktueller Sprecher passt.
-    final loser = bidActor;
+  bool bidPass(int seat) {
+    if (phase != Phase.bidding || seat != actingSeat) return false;
+    final loser = seat;
     final winner = callerToAct ? responder : caller;
-    message = '${names[loser]} passt.';
+    message = '${name(loser)} passt.';
     _stageEnd(winner);
+    return true;
   }
 
   void _stageEnd(int winner) {
@@ -160,52 +177,56 @@ class SkatGame extends ChangeNotifier {
     declarer = winner;
     if (bid == 0) {
       phase = Phase.decide18;
-      message = '${names[winner]} muss spielen oder einwerfen.';
+      message = '${name(winner)} muss spielen oder einwerfen.';
     } else {
-      _afterBidding();
+      phase = Phase.handDecision;
+      message = '${name(winner)} spielt (Gebot $bid).';
     }
     _changed();
   }
 
-  void decide18(bool play) {
+  bool decide18(int seat, bool play) {
+    if (phase != Phase.decide18 || seat != declarer) return false;
     if (!play) {
       phase = Phase.allPassed;
       message = 'Alle haben gepasst – neu geben.';
-      _changed();
-      return;
+    } else {
+      bid = 18;
+      phase = Phase.handDecision;
+      message = '${name(seat)} spielt (Gebot 18).';
     }
-    bid = 18;
-    _afterBidding();
     _changed();
-  }
-
-  void _afterBidding() {
-    phase = Phase.handDecision;
-    message = '${names[declarer!]} spielt (Gebot $bid).';
+    return true;
   }
 
   // ---------- Skat / Spielwahl ----------
-  void pickUpSkat() {
-    final d = declarer!;
-    hands[d] = [...hands[d], ...skat]..sort(handCompare);
-    twelve = List.of(hands[d]);
+  bool pickUpSkat(int seat) {
+    if (phase != Phase.handDecision || seat != declarer) return false;
+    hands[seat] = [...hands[seat], ...skat]..sort(handCompare);
+    twelve = List.of(hands[seat]);
     isHand = false;
     phase = Phase.discard;
+    message = '${name(seat)} nimmt den Skat auf.';
     _changed();
+    return true;
   }
 
-  void playHand(GameType g) {
+  bool playHand(int seat, GameType g) {
+    if (phase != Phase.handDecision || seat != declarer) return false;
     isHand = true;
-    twelve = List.of(hands[declarer!]);
+    twelve = List.of(hands[seat]);
     _startPlay(g);
+    return true;
   }
 
-  void discardAndPlay(List<SkatCard> two, GameType g) {
-    final d = declarer!;
-    assert(two.length == 2);
+  bool discardAndPlay(int seat, List<SkatCard> two, GameType g) {
+    if (phase != Phase.discard || seat != declarer) return false;
+    if (two.length != 2 || two[0] == two[1]) return false;
+    if (!two.every(hands[seat].contains)) return false;
     discarded = List.of(two);
-    hands[d] = hands[d].where((c) => !two.contains(c)).toList();
+    hands[seat] = hands[seat].where((c) => !two.contains(c)).toList();
     _startPlay(g);
+    return true;
   }
 
   void _startPlay(GameType g) {
@@ -217,42 +238,43 @@ class SkatGame extends ChangeNotifier {
     turn = vorhand;
     trick = [];
     trickSeats = [];
-    message = '${names[declarer!]} spielt ${g.label}${isHand ? ' Hand' : ''}.';
+    message = '${name(declarer!)} spielt ${g.label}${isHand ? ' Hand' : ''}.';
     _changed();
   }
 
   // ---------- Stichspiel ----------
-  List<SkatCard> legalForHuman() => phase == Phase.playing && turn == 0
-      ? legalMoves(hands[0], trick, game!)
-      : const [];
+  List<SkatCard> legalFor(int seat) =>
+      phase == Phase.playing && seat == turn ? legalMoves(hands[seat], trick, game!) : const [];
 
-  void playCard(SkatCard c) {
-    if (phase != Phase.playing) return;
-    final seat = turn;
-    assert(hands[seat].contains(c));
+  bool playCard(int seat, SkatCard c) {
+    if (phase != Phase.playing || seat != turn) return false;
+    if (!hands[seat].contains(c)) return false;
+    if (!legalMoves(hands[seat], trick, game!).contains(c)) return false;
     hands[seat].remove(c);
     trick.add(c);
     trickSeats.add(seat);
     if (trick.length == 3) {
       final w = trickSeats[trickWinnerIndex(trick, game!)];
+      lastTrick = List.of(trick);
+      lastTrickSeats = List.of(trickSeats);
       lastTrickWinner = w;
       points[w] += pointsOf(trick);
       tricksWon[w]++;
       phase = Phase.trickDone;
-      message = '${names[w]} sticht.';
+      message = '${name(w)} sticht.';
       turn = w;
     } else {
-      turn = (seat + 1) % 3;
+      turn = nextActive(seat);
     }
     _changed();
+    return true;
   }
 
-  /// Stich abräumen und weiterspielen bzw. Runde beenden.
   void collectTrick() {
     if (phase != Phase.trickDone) return;
     trick = [];
     trickSeats = [];
-    if (hands.every((h) => h.isEmpty)) {
+    if (order.every((s) => hands[s].isEmpty)) {
       _finishRound();
     } else {
       phase = Phase.playing;
@@ -266,7 +288,7 @@ class SkatGame extends ChangeNotifier {
     final dPoints = points[d] + (isHand ? pointsOf(skat) : pointsOf(discarded));
     final dTricks = tricksWon[d];
     bool won;
-    bool schneider = false, schwarz = false;
+    var schneider = false, schwarz = false;
     if (g.isNull) {
       won = dTricks == 0;
     } else {
@@ -274,10 +296,10 @@ class SkatGame extends ChangeNotifier {
       schneider = won ? dPoints >= 90 : dPoints <= 30;
       schwarz = won ? dTricks == 10 : dTricks == 0;
     }
-    final (_, n) = g.isNull ? (true, 0) : spitzen(twelve, g);
+    final (_, sp) = g.isNull ? (true, 0) : spitzen(twelve, g);
     final input = ScoreInput(
       game: g,
-      spitzen: n,
+      spitzen: sp,
       hand: isHand,
       schneider: schneider,
       schwarz: schwarz,
@@ -298,7 +320,56 @@ class SkatGame extends ChangeNotifier {
       hand: isHand,
     );
     phase = Phase.roundOver;
-    message = score > 0 ? '${names[d]} gewinnt!' : '${names[d]} verliert.';
+    message = score > 0 ? '${name(d)} gewinnt!' : '${name(d)} verliert.';
+  }
+
+  // ---------- Ansicht ----------
+  GameView viewFor(int seat) {
+    final d = declarer;
+    var augen = 0;
+    if (d != null && game != null) {
+      if (seat == d) {
+        augen = points[d] + (isHand ? 0 : pointsOf(discarded));
+      } else {
+        for (final s in order) {
+          if (s != d) augen += points[s];
+        }
+      }
+    }
+    final over = phase == Phase.roundOver;
+    return GameView(
+      n: n,
+      names: [for (final s in seats) s.name],
+      isBot: [for (final s in seats) s.isBot],
+      mySeat: seat,
+      dealer: dealer,
+      phase: phase,
+      actingSeat: actingSeat,
+      callerToAct: callerToAct,
+      caller: caller,
+      responder: responder,
+      bid: bid,
+      nextBid: nextBid,
+      declarer: declarer,
+      game: game,
+      isHand: isHand,
+      myHand: List.of(hands[seat]),
+      handSizes: [for (final h in hands) h.length],
+      legal: legalFor(seat),
+      trick: List.of(trick),
+      trickSeats: List.of(trickSeats),
+      turn: turn,
+      tricksWon: List.of(tricksWon),
+      totals: List.of(totals),
+      message: message,
+      result: result,
+      lastTrick: List.of(lastTrick),
+      lastTrickSeats: List.of(lastTrickSeats),
+      lastTrickWinner: lastTrickWinner,
+      revealedSkat: over ? (isHand ? List.of(skat) : List.of(discarded)) : const [],
+      myAugen: augen,
+      round: round,
+    );
   }
 
   // ---------- Bots ----------
@@ -309,106 +380,84 @@ class SkatGame extends ChangeNotifier {
   }
 
   bool get _botToAct {
-    switch (phase) {
-      case Phase.bidding:
-        return bidActor != 0;
-      case Phase.decide18:
-      case Phase.handDecision:
-      case Phase.discard:
-        return declarer != 0;
-      case Phase.playing:
-        return turn != 0;
-      case Phase.trickDone:
-        return true; // automatisch abräumen
-      default:
-        return false;
-    }
+    if (phase == Phase.trickDone) return true;
+    final a = actingSeat;
+    return a != null && seats[a].isBot;
   }
 
   void _scheduleBot() {
-    if (!_botToAct) return;
+    if (_botScheduled || !_botToAct) return;
+    _botScheduled = true;
     final gen = _gen;
-    final delay = phase == Phase.trickDone
-        ? (botDelay == Duration.zero ? Duration.zero : const Duration(milliseconds: 1100))
-        : botDelay;
+    final delay = phase == Phase.trickDone ? trickDelay : botDelay;
     Future.delayed(delay, () {
+      _botScheduled = false;
       if (_disposed || gen != _gen) return;
       _botStep();
+      // Falls der Schritt nichts geändert hat, nicht endlos neu planen.
     });
   }
 
   void _botStep() {
+    if (phase == Phase.trickDone) {
+      collectTrick();
+      return;
+    }
+    final a = actingSeat;
+    if (a == null || !seats[a].isBot) return;
     switch (phase) {
       case Phase.bidding:
-        _botBid();
-      case Phase.decide18:
-        decide18(bestGame(hands[declarer!]) != null || _rng.nextBool());
-      case Phase.handDecision:
-        final d = declarer!;
-        final choice = bestGame(hands[d]);
-        // Hand spielen bei sehr starker Hand
-        if (choice != null && choice.value >= bid && choice.value >= 48 && !choice.game.isNull) {
-          playHand(choice.game);
+        final limit = maxBid(hands[a]);
+        if (callerToAct) {
+          nextBid <= limit ? bidCall(a) : bidPass(a);
         } else {
-          pickUpSkat();
+          bid <= limit ? bidHold(a) : bidPass(a);
+        }
+      case Phase.decide18:
+        decide18(a, bestGame(hands[a]) != null || _rng.nextBool());
+      case Phase.handDecision:
+        final choice = bestGame(hands[a]);
+        if (choice != null && choice.value >= bid && choice.value >= 48 && !choice.game.isNull) {
+          playHand(a, choice.game);
+        } else {
+          pickUpSkat(a);
         }
       case Phase.discard:
-        final d = declarer!;
-        final choice = bestGame(hands[d]) ?? GameChoice(_fallbackGame(hands[d]), 0);
-        final two = chooseDiscard(hands[d], choice.game);
-        // Spiel mit 10 Karten erneut bewerten
-        final remaining = hands[d].where((c) => !two.contains(c)).toList();
+        final choice = bestGame(hands[a]) ?? GameChoice(_fallbackGame(hands[a]), 0);
+        final two = chooseDiscard(hands[a], choice.game);
+        final remaining = hands[a].where((c) => !two.contains(c)).toList();
         final g = bestGame(remaining)?.game ?? choice.game;
-        discardAndPlay(two, g);
+        discardAndPlay(a, two, g);
       case Phase.playing:
-        final seat = turn;
         final c = botPlay(
-          hand: hands[seat],
+          hand: hands[a],
           trick: trick,
           seatsInTrick: trickSeats,
-          seat: seat,
+          seat: a,
           declarer: declarer!,
           game: game!,
         );
-        playCard(c);
-      case Phase.trickDone:
-        collectTrick();
+        playCard(a, c);
       default:
         break;
     }
   }
 
   GameType _fallbackGame(List<SkatCard> h) {
-    // Häufigste Farbe als Trumpf
     final counts = {for (final s in Suit.values) s: h.where((c) => c.suit == s && !c.isJack).length};
     final best = counts.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
     return GameType.suit(best);
   }
 
-  void _botBid() {
-    final actor = bidActor;
-    final limit = maxBid(hands[actor]);
-    if (callerToAct) {
-      if (nextBid <= limit) {
-        _bidCall();
-      } else {
-        _bidPass();
-      }
-    } else {
-      if (bid <= limit) {
-        _bidHold();
-      } else {
-        _bidPass();
-      }
-    }
+  /// Ein Mensch ist weg (Verbindung verloren): Bot übernimmt den Sitz.
+  void replaceWithBot(int seat) {
+    seats[seat].isBot = true;
+    seats[seat].name = '${seats[seat].name} (Bot)';
+    _changed();
   }
 
-  void newRound() => deal();
-
   void resetTotals() {
-    for (var i = 0; i < 3; i++) {
-      totals[i] = 0;
-    }
+    totals = List.filled(n, 0);
     _changed();
   }
 

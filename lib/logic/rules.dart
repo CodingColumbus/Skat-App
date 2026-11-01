@@ -22,7 +22,7 @@ class GameType {
         GameKind.nullGame => 23,
       };
   String get label => switch (kind) {
-        GameKind.suit => trump!.name,
+        GameKind.suit => trump!.label,
         GameKind.grand => 'Grand',
         GameKind.nullGame => 'Null',
       };

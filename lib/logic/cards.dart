@@ -8,7 +8,7 @@ enum Rank { sieben, acht, neun, dame, koenig, zehn, ass, bube }
 
 extension SuitX on Suit {
   String get symbol => const ['♦', '♥', '♠', '♣'][index];
-  String get name => const ['Karo', 'Herz', 'Pik', 'Kreuz'][index];
+  String get label => const ['Karo', 'Herz', 'Pik', 'Kreuz'][index];
   bool get isRed => this == Suit.karo || this == Suit.herz;
   /// Grundwert für die Spielwertberechnung.
   int get baseValue => const [9, 10, 11, 12][index];
