@@ -22,6 +22,7 @@ class Settings extends ChangeNotifier {
   bool showAugen = true;
   bool haptics = true;
   bool showOpponentTricks = true;
+  bool seatColorsOn = true;
 
   Duration get botDelay => const [Duration(milliseconds: 350), Duration(milliseconds: 750), Duration(milliseconds: 1300)][botSpeed];
   Duration get trickDelay => const [Duration(milliseconds: 800), Duration(milliseconds: 1400), Duration(milliseconds: 2200)][botSpeed];
@@ -41,6 +42,7 @@ class Settings extends ChangeNotifier {
       showAugen = p.getBool('s_augen') ?? true;
       haptics = p.getBool('s_haptic') ?? true;
       showOpponentTricks = p.getBool('s_tricks') ?? true;
+      seatColorsOn = p.getBool('s_seatcol') ?? true;
     } catch (_) {}
     notifyListeners();
   }
@@ -59,6 +61,7 @@ class Settings extends ChangeNotifier {
       await p.setBool('s_augen', showAugen);
       await p.setBool('s_haptic', haptics);
       await p.setBool('s_tricks', showOpponentTricks);
+      await p.setBool('s_seatcol', seatColorsOn);
     } catch (_) {}
   }
 
