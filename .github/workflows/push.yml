@@ -1,0 +1,41 @@
+name: Dateien nach oben verschieben
+on:
+  workflow_dispatch: # Erlaubt das manuelle Starten im Actions-Tab
+
+permissions:
+  contents: write
+
+jobs:
+  move-files:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v4
+
+      - name: Ordnerstruktur korrigieren
+        run: |
+          echo "=== Struktur VOR dem Verschieben ==="
+          ls -R
+          
+          # 1. Alle Inhalte (inklusive versteckter .github-Ordner) nach oben schieben
+          # Falls der .github-Ordner in skat_app liegt, wird er mitkopiert
+          if [ -d "skat_app/.github" ]; then
+            cp -r skat_app/.github/ .github/ 2>/dev/null || true
+          fi
+          
+          # 2. Alle sichtbaren Dateien und Ordner aus skat_app ins Hauptverzeichnis verschieben
+          mv skat_app/* . 2>/dev/null || true
+          
+          # 3. Den nun überflüssigen skat_app Ordner löschen
+          rm -rf skat_app
+          
+          echo "=== Struktur NACH dem Verschieben ==="
+          ls -R
+
+      - name: Änderungen committen und pushen
+        run: |
+          git config --local user.email "github-actions[bot]@://github.com"
+          git config --local user.name "github-actions[bot]"
+          git add .
+          git commit -m "Dateien aus skat_app ins Hauptverzeichnis verschoben" || echo "Keine Änderungen"
+          git push origin HEAD:${{ github.ref }}
